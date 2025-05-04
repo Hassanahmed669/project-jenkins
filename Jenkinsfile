@@ -17,7 +17,7 @@ pipeline {
         stage('Test Docker Image') {
           steps {
             sh '''
-            docker run -d --name test_container $IMAGE_NAME:IMAGE_TAG
+            docker run -d --name test_container $IMAGE_NAME:$IMAGE_TAG
             sleep 5
             docker stop test_container
             docker rm test_container
@@ -29,7 +29,7 @@ pipeline {
             withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
               sh '''
                 echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin
-                docker push $IMAGE_NAME:IMAGE_TAG
+                docker push $IMAGE_NAME:$IMAGE_TAG
               '''
                 }
             }
