@@ -1,0 +1,169 @@
+---
+- name: Provision Staging Server
+  hosts: localhost
+  gather_facts: false
+  vars:
+    region: us-east-1
+    instance_type: t2.medium
+    ami_id: ami-0e449927258d45bc4  # Amazon Linux 2 AMI
+    security_group: launch-wizard-2  # Pre-created security group
+    key_name: pc  # Pre-created SSH key
+    instance_name: staging-server
+
+  tasks:
+    - name: Launch EC2 instance
+      amazon.aws.ec2_instance:
+        name: "{{ instance_name }}"
+        key_name: "{{ key_name }}"
+        security_group: "{{ security_group }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_id }}"
+        region: "{{ region }}"
+        wait: yes
+        network:
+          assign_public_ip: yes
+        tags:
+          Environment: Staging
+      register: ec2
+
+    - name: Store instance IP
+      set_fact:
+        instance_ip: "{{ ec2.instances[0].public_ip_address }}"
+
+    - name: Add host to inventory
+      add_host:
+        name: "{{ instance_ip }}"
+        groups: staging
+        ansible_user: ec2-user
+        ansible_ssh_private_key_file: ~/.ssh/{{ key_name }}.pem
+        key_name: "{{ key_name }}"  # Pass key_name to the staging group
+
+    - name: Wait for SSH to come up
+      wait_for:
+        host: "{{ instance_ip }}"
+        port: 22
+        delay: 10
+        timeout: 320
+        state: started
+
+    - name: Store IP in a file for later use
+      copy:
+        content: "{{ instance_ip }}"
+        dest: "./staging_server_ip.txt"
+
+- name: Setup Staging Server
+  hosts: staging
+  become: yes
+  gather_facts: yes
+  vars:
+    ssh_key_name: "{{ hostvars[inventory_hostname]['key_name'] | default('pc') }}"
+  tasks:
+    - name: Update all packages
+      dnf:
+        name: '*'
+        state: latest
+        update_only: yes
+
+    - name: Install required packages
+      dnf:
+        name:
+          - docker
+          - git
+          - python3-pip
+          - conntrack
+          - socat
+        state: present
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add ec2-user to docker group
+      user:
+        name: ec2-user
+        groups: docker
+        append: yes
+
+    # Install docker Python packages for the ec2-user only
+    - name: Upgrade pip to latest version
+      become_user: ec2-user
+      pip:
+        name: pip
+        state: latest
+        extra_args: --user
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/home/ec2-user/.local/bin"
+    
+    - name: Install Docker Python packages for user
+      become_user: ec2-user
+      pip:
+        name: 
+          - docker
+          - docker-compose
+        state: present
+        extra_args: --user
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/home/ec2-user/.local/bin"
+
+    - name: Install kubectl
+      get_url:
+        url: https://storage.googleapis.com/kubernetes-release/release/v1.23.0/bin/linux/amd64/kubectl
+        dest: /usr/local/bin/kubectl
+        mode: 0755
+
+    - name: Install minikube
+      get_url:
+        url: https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        dest: /usr/local/bin/minikube
+        mode: 0755
+
+    - name: Create .kube directory
+      file:
+        path: /home/ec2-user/.kube
+        state: directory
+        owner: ec2-user
+        group: ec2-user
+        mode: 0755
+
+    # Fix permissions issue without using newgrp
+    - name: Apply Docker group permissions
+      shell: |
+        sudo chmod 666 /var/run/docker.sock
+      args:
+        executable: /bin/bash
+
+    - name: Start minikube
+      become: yes
+      become_user: ec2-user
+      shell: |
+        export PATH=$PATH:$HOME/.local/bin
+        minikube start --driver=docker
+      args:
+        chdir: /home/ec2-user
+        executable: /bin/bash
+      environment:
+        HOME: /home/ec2-user
+      register: minikube_result
+      ignore_errors: yes
+
+    - name: Create application directory
+      file:
+        path: /home/ec2-user/app
+        state: directory
+        owner: ec2-user
+        group: ec2-user
+        mode: 0755
+
+    - name: Display minikube start result
+      debug:
+        var: minikube_result
+      when: minikube_result is defined
+
+    - name: Display staging server information
+      debug:
+        msg: 
+          - "Staging server provisioned successfully"
+          - "IP Address: {{ inventory_hostname }}"
+          - "Access the server with: ssh -i ~/.ssh/{{ ssh_key_name }}.pem ec2-user@{{ inventory_hostname }}"
