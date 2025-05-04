@@ -36,7 +36,7 @@ pipeline {
         }
         stage('Deploy to Staging via Ansible') {
           steps {
-            sh 'ansible-playbook -i ansible/inventory.ini ansible/deploy_k8s.yaml --extra-vars "image_tag=$IMAGE_TAG'
+            sh 'ansible-playbook -i ansible/inventory.ini ansible/deploy_k8s.yaml --extra-vars "image_tag=$IMAGE_TAG"'
             }
         }
     }
