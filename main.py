@@ -6,7 +6,7 @@ import datetime
 import logging
 
 # Define the application version and fetch the hostname from environment variables
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 HOSTNAME = os.environ.get("HOSTNAME", "unknown")
 
 
