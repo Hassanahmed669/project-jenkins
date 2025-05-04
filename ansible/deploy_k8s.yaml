@@ -22,7 +22,7 @@
               spec:
                 containers:
                 - name: sample-app
-                  image: hassanhbahmed/sample-app:latest
+                  image: hassanhbahmed/sample-app:{{ image_tag }}
                   ports:
                   - containerPort: 80
 
